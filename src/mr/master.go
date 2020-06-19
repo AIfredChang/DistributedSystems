@@ -9,12 +9,22 @@ import (
 	"sync"
 )
 
+type Task struct {
+	taskType_      int
+	isCompleted_   bool
+	isDistributed_ bool
+	index_         int
+}
+
 type Master struct {
-	mu       sync.Mutex
-	visited  map[string]bool
-	numFiles int
-	files    []string
-	nReduce  int
+	files       []string
+	mTasks      []Task
+	rTasks      []Task
+	doneMaps    int64
+	doneReduces int64
+	mutex       sync.Mutex
+	isFinished  bool
+	nReduce     int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -31,11 +41,31 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 		reply.index = m.numFiles
 		reply.fileName = m.files[m.numFiles]
 		reply.nReduce = m.nReduce
+		reply.mapTime = true
 		m.numFiles--
 		m.mu.Unlock()
 	}
 
 	return nil
+
+}
+
+func (m *Master) RequestForTask(args *RequestTask, reply *RequestTaskResponse) error {
+	if m.ReduceDone() {
+
+	}
+
+}
+
+func (m *Master) ReduceDone() bool {
+	isFinished := false
+	m.mutex.Lock()
+
+	if m.doneReduces >= int64(m.nReduce) {
+		isFinished = true
+	}
+	m.mutex.Unlock()
+	return isFinished
 
 }
 
@@ -75,9 +105,21 @@ func (m *Master) Done() bool {
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 	m.files = files
+	m.isFinished = false
+	m.doneMaps = -1
+	m.doneReduces = -1
+	m.mutex = sync.Mutex{}
 	m.nReduce = nReduce
-	m.visited = make(map[string]bool)
-	m.numFiles = len(string) - 1
+
+	for i := range files {
+		mTask := Task{MAP, false, false, index}
+		m.mTasks = append(m.mTasks, mTask)
+	}
+
+	for i := 0; i < nReduce; i++ {
+		rTask := Task{REDUCE, false, false, i}
+		m.reduceTasks = append(m.reduceTaske, rTask)
+	}
 
 	m.server()
 	return &m

@@ -1,14 +1,11 @@
 package mr
 
 import (
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
 	"log"
 	"net/rpc"
-	"os"
-	"strconv"
+	"sync"
 )
 
 //
@@ -17,6 +14,12 @@ import (
 type KeyValue struct {
 	Key   string
 	Value string
+}
+
+type Worker struct {
+	executing bool
+	mutex     sync.Mutex
+	id        int
 }
 
 //
@@ -35,48 +38,13 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	args := ExampleArgs{}
+	currentState := worker{false, sync.Mutex{}, -1}
 
-	// declare a reply structure.
-	reply := ExampleReply{}
+	for {
+		req := RequestTask{}
+		res := RequestTaskResponse{}
 
-	call("Master.Example", &args, &reply)
-
-	//used mrseq code
-	file, err := os.Open(reply.fileName)
-
-	if err != nil {
-		log.Fatalf("cannot open %v", reply.fileName)
-	}
-
-	content, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Fatalf("cannot read %v", reply.fileName)
-	}
-	file.Close()
-
-	//partitioning the data into intermediate files
-	kva := mapf(reply.fileName, string(content))
-	for i := 0; i < nReduce; r++ {
-		intFileName := "mr" + "-" + strconv.Itoa(reply.index) + "-" + strconv.Itoa(i)
-
-		intFile, err := os.Create(outputfilename)
-		if err != nil {
-			log.Fatalf("cannot create %v", intFileName)
-		}
-		enc := json.NewEncoder(intFile)
-		for _, kv := range kva {
-			hashValue := ihash(kv.Key) % uint32(nReduce)
-			if hashValue == uint32(i) {
-				err := enc.Encode(&kv)
-				if err != nil {
-					log.Fatalf("cannot encode")
-				}
-			}
-
-		}
-
-		intFile.Close()
+		success := call("Master.RequestForTask", &request, &response)
 
 	}
 

@@ -16,14 +16,22 @@ import (
 // and reply for an RPC.
 //
 
-type ExampleArgs struct {
-	X int
+type RequestTask struct {
+	source string
 }
 
-type ExampleReply struct {
-	index    int
-	fileName string
-	nReduce int
+type RequestTaskResponse struct {
+	fileNames []string
+	InputNum  int64
+	TaskType_ int
+	Id        int
+} 
+
+const { 
+	MAP 0 
+	REDUCE 1 
+	SLEEP 2
+
 }
 
 // Add your RPC definitions here.
