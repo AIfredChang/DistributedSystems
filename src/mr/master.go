@@ -7,6 +7,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 )
 
 type Task struct {
@@ -52,9 +53,85 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (m *Master) RequestForTask(args *RequestTask, reply *RequestTaskResponse) error {
 	if m.ReduceDone() {
-
+		reply.TaskType = SLEEP
+		return nil
 	}
 
+	if m.MapDone() {
+		task := m.getTask(REDUCE)
+		if task.taskType_ == NONE {
+			reply.TaskType_ = NONE
+			return nil
+		}
+		reply.TaskType_ = REDUCE
+		reply.Id_ = task.index_
+		go m.waitForTask(reply.Id_, REDUCE)
+	} else {
+		task := m.getTask(MAP)
+		if task.taskType_ == NONE {
+			reply.taskType_ == NONE
+			return nil
+		}
+		reply.TaskType_ = MAP
+		reply.Id_ = task.index_
+		reply.FileNames_ = append(reply.fileNames, m.getFile(reply.Id_))
+
+		go m.waitForTask(reply.Id_, MAP)
+	}
+
+}
+
+func (m *Master) waitForTask(index int, taskType int) {
+	timer := time.NewTimer(time.Second * 10)
+	<-timer.C
+	m.mutex.Lock()
+	if taskType == MAP {
+		if m.mTasks[index].isCompleted_ == false {
+			m.mTasks[index].isDistributed_ = false
+		}
+	} else {
+		if m.rTasks[index].isCompleted_ == false {
+			m.rTasks[index].isDistributed_ = false
+		}
+	}
+	m.mutex.Unlock()
+
+}
+
+func (m *Master) getFile(index int) string {
+	var file string
+	m.mutex.Lock()
+	file = m.files[index]
+	m.mutex.Unlock()
+	return file
+}
+
+func (m *Master) getTask(taskType int) Task {
+	task := Task{}
+	task.taskType_ = NONE
+	m.mutex.Lock()
+	if taskType == MAP {
+		for i := 0; i < len(m.mTasks); i++ {
+			if m.mTasks[i].isDistributed_ == false {
+				m.mTasks[i].isDistributed_ = true
+				task = m.mTasks[i]
+				break
+			}
+
+		}
+
+	} else if taskType == REDUCE {
+		for i := 0; i < len(m.rTasks); i++ {
+			if m.rTasks[i].isDistributed_ == false {
+				m.rTasks[i].isDistributed_ = true
+				task = m.reduceTasks[i]
+				break
+			}
+		}
+
+	}
+	m.mutex.Unlock()
+	return task
 }
 
 func (m *Master) ReduceDone() bool {
@@ -62,6 +139,18 @@ func (m *Master) ReduceDone() bool {
 	m.mutex.Lock()
 
 	if m.doneReduces >= int64(m.nReduce) {
+		isFinished = true
+	}
+	m.mutex.Unlock()
+	return isFinished
+
+}
+
+func (m *Master) MapDone() bool {
+	isFinished := false
+	m.mutex.Lock()
+
+	if m.doneMaps >= int64(m.nReduce) {
 		isFinished = true
 	}
 	m.mutex.Unlock()
