@@ -28,57 +28,34 @@ type Master struct {
 	nReduce     int
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-
-	if m.numFiles >= 0 {
-		m.mu.Lock()
-		reply.index = m.numFiles
-		reply.fileName = m.files[m.numFiles]
-		reply.nReduce = m.nReduce
-		reply.mapTime = true
-		m.numFiles--
-		m.mu.Unlock()
-	}
-
-	return nil
-
-}
-
 func (m *Master) RequestForTask(args *RequestTask, reply *RequestTaskResponse) error {
 	if m.ReduceDone() {
-		reply.TaskType = SLEEP
+		reply.TaskType_ = SLEEP
 		return nil
 	}
 
 	if m.MapDone() {
 		task := m.getTask(REDUCE)
-		if task.taskType_ == NONE {
-			reply.TaskType_ = NONE
+		if task.taskType_ == SLEEP {
+			reply.TaskType_ = SLEEP
 			return nil
 		}
 		reply.TaskType_ = REDUCE
-		reply.Id_ = task.index_
-		go m.waitForTask(reply.Id_, REDUCE)
+		reply.Id = task.index_
+		go m.waitForTask(reply.Id, REDUCE)
 	} else {
 		task := m.getTask(MAP)
-		if task.taskType_ == NONE {
-			reply.taskType_ == NONE
+		if task.taskType_ == SLEEP {
+			reply.TaskType_ = SLEEP
 			return nil
 		}
 		reply.TaskType_ = MAP
-		reply.Id_ = task.index_
-		reply.FileNames_ = append(reply.fileNames, m.getFile(reply.Id_))
+		reply.Id = task.index_
+		reply.fileNames = append(reply.fileNames, m.getFile(reply.Id))
 
-		go m.waitForTask(reply.Id_, MAP)
+		go m.waitForTask(reply.Id, MAP)
 	}
-
+	return nil
 }
 
 func (m *Master) waitForTask(index int, taskType int) {
@@ -98,6 +75,28 @@ func (m *Master) waitForTask(index int, taskType int) {
 
 }
 
+func (m *Master) SubmitTask(args *doneRequest, reply *doneResponse) error {
+	m.mutex.Lock()
+	if args.TaskType_ == MAP && m.mTasks[args.Index].isCompleted_ == false {
+		m.mTasks[args.Index].isCompleted_ = true
+		if m.doneMaps == -1 {
+			m.doneMaps = 0
+		}
+		m.doneMaps++
+	} else if args.TaskType_ == REDUCE && m.rTasks[args.Index].isCompleted_ == false {
+		m.rTasks[args.Index].isCompleted_ = true
+		if m.doneReduces == -1 {
+			m.doneReduces = 0
+		}
+		m.doneReduces++
+		if m.doneReduces == int64(m.nReduce) {
+			m.isFinished = true
+		}
+	}
+	m.mutex.Unlock()
+	return nil
+}
+
 func (m *Master) getFile(index int) string {
 	var file string
 	m.mutex.Lock()
@@ -108,7 +107,7 @@ func (m *Master) getFile(index int) string {
 
 func (m *Master) getTask(taskType int) Task {
 	task := Task{}
-	task.taskType_ = NONE
+	task.taskType_ = SLEEP
 	m.mutex.Lock()
 	if taskType == MAP {
 		for i := 0; i < len(m.mTasks); i++ {
@@ -124,7 +123,7 @@ func (m *Master) getTask(taskType int) Task {
 		for i := 0; i < len(m.rTasks); i++ {
 			if m.rTasks[i].isDistributed_ == false {
 				m.rTasks[i].isDistributed_ = true
-				task = m.reduceTasks[i]
+				task = m.rTasks[i]
 				break
 			}
 		}
@@ -201,13 +200,13 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.nReduce = nReduce
 
 	for i := range files {
-		mTask := Task{MAP, false, false, index}
+		mTask := Task{MAP, false, false, i}
 		m.mTasks = append(m.mTasks, mTask)
 	}
 
 	for i := 0; i < nReduce; i++ {
 		rTask := Task{REDUCE, false, false, i}
-		m.reduceTasks = append(m.reduceTaske, rTask)
+		m.rTasks = append(m.rTasks, rTask)
 	}
 
 	m.server()

@@ -25,14 +25,22 @@ type RequestTaskResponse struct {
 	InputNum  int64
 	TaskType_ int
 	Id        int
-} 
-
-const { 
-	MAP 0 
-	REDUCE 1 
-	SLEEP 2
-
 }
+
+type doneRequest struct {
+	TaskType_ int
+	Index     int
+}
+
+type doneResponse struct {
+	recieved bool
+}
+
+const (
+	MAP    = 0
+	REDUCE = 1
+	SLEEP  = 2
+)
 
 // Add your RPC definitions here.
 
