@@ -27,6 +27,14 @@ type worker struct {
 	id        int
 }
 
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -79,6 +87,7 @@ func (state *worker) getId() int {
 	state.mutex.Lock()
 	index = state.id
 	state.mutex.Unlock()
+	return index
 }
 
 func (state *worker) setId(index int) {
@@ -91,7 +100,7 @@ func NotifyCompletion(taskType int, index int) bool {
 	req := doneRequest{}
 	res := doneResponse{}
 	req.TaskType_ = taskType
-	res.Index = index
+	req.Index = index
 	success := call("Master.SubmitTask", &req, &res)
 	return success
 
@@ -99,16 +108,16 @@ func NotifyCompletion(taskType int, index int) bool {
 
 func Mapping(mapf func(string, string) []KeyValue, fileNames []string, index int) {
 	for _, file := range fileNames {
-		file, err := os.Open(file)
+		mapFile, err := os.Open(file)
 		if err != nil {
-			log.Fatalf("cannot open %v", key)
+			log.Fatalf("cannot open %v", mapFile)
 		}
-		content, err := ioutil.ReadAll(file)
+		content, err := ioutil.ReadAll(mapFile)
 		if err != nil {
-			log.Fatalf("cannot read %v", key)
+			log.Fatalf("cannot read %v", mapFile)
 		}
-		file.close()
-		kva := mapf(file, string(content))
+		mapFile.Close()
+		kva := mapf(mapFile.Name(), string(content))
 		sort.Sort(ByKey(kva))
 		createIntermediate(&kva, index)
 
@@ -116,7 +125,7 @@ func Mapping(mapf func(string, string) []KeyValue, fileNames []string, index int
 }
 
 func Reducing(reducef func(string, []string) string, index int) {
-	kva := getIntermediate(index)
+	kva := loadIntermediate(index)
 	sort.Sort(ByKey(kva))
 	i := 0
 	ofile, err := ioutil.TempFile("./", "prefix")
@@ -163,8 +172,8 @@ func createIntermediate(kva *[]KeyValue, index int) {
 		for j < len(*kva) && (*kva)[j].Key == (*kva)[i].Key {
 			j++
 		}
-		reducerIndex := ihash((*kva[i].Key)) % 10
-		ofile, err := os.OpenFile(tempFiles[reducerIndex], os.O_APPEND|os.RDWR, os.ModePerm)
+		reducerIndex := ihash((*kva)[i].Key) % 10
+		ofile, err := os.OpenFile(tempFiles[reducerIndex], os.O_APPEND|os.O_RDWR, os.ModePerm)
 		if err != nil {
 			fmt.Printf("error : %v", err)
 		}
@@ -181,7 +190,7 @@ func createIntermediate(kva *[]KeyValue, index int) {
 	}
 	for rindex, oname := range tempFiles {
 		name := "./" + fmt.Sprintf("mr-%v-%v", index, rindex)
-		os.Rename(oname, newname)
+		os.Rename(oname, name)
 	}
 }
 
@@ -189,7 +198,7 @@ func loadIntermediate(index int) []KeyValue {
 	//need to figure out directory
 	fs, err := ioutil.ReadDir("./")
 	if err != nil {
-		fmt.Printf("ERROR: v% , from reading dir %v", err, dir)
+		fmt.Printf("ERROR: v% , from reading dir %v", err, "./")
 	}
 	var kva []KeyValue
 	for _, fileInfo := range fs {
@@ -215,27 +224,6 @@ func loadIntermediate(index int) []KeyValue {
 	}
 	sort.Sort(ByKey(kva))
 	return kva
-}
-
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
 }
 
 //
